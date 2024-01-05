@@ -222,6 +222,10 @@ class ResidualAttentionBlock_IVLP(nn.Module):
         else:
             self.add_prompt = False
 
+        # PromptAlign
+        # self.visual_feature = torch.empty(0)  # not used. Is it typo of PromptAlign?
+        self.visual_feat = torch.empty(0)
+
     def attention(self, x: torch.Tensor):
         self.attn_mask = self.attn_mask.to(dtype=x.dtype, device=x.device) if self.attn_mask is not None else None
         return self.attn(x, x, x, need_weights=False, attn_mask=self.attn_mask)[0]
@@ -251,6 +255,10 @@ class ResidualAttentionBlock_IVLP(nn.Module):
                 # layer learnable tokens
                 x = torch.cat([prefix, textual_context, suffix], dim=0)
 
+        # PromptAlign
+        if not self.text_layer:
+            self.visual_feat = x
+            
         x = x + self.attention(self.ln_1(x))
         x = x + self.mlp(self.ln_2(x))
         return x
@@ -326,6 +334,11 @@ class ResidualAttentionBlock_MaPLe(nn.Module):
                         x = torch.cat([prefix, textual_context, suffix], dim=0)
                         # Once done, update the counter, so that the next time, it does not use same learnable tokens
                         counter += 1
+
+        # PromptAlign
+        if not self.text_layer:
+            self.visual_feat = x
+                        
         x = x + self.attention(self.ln_1(x))
         x = x + self.mlp(self.ln_2(x))
         return [x, compound_prompts_deeper, counter]  # return again as a list, so that nn.seq can work
