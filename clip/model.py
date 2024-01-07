@@ -223,7 +223,7 @@ class ResidualAttentionBlock_IVLP(nn.Module):
             self.add_prompt = False
 
         # PromptAlign
-        # self.visual_feature = torch.empty(0)  # not used. Is it typo of PromptAlign?
+        self.text_feat = torch.empty(0)
         self.visual_feat = torch.empty(0)
 
     def attention(self, x: torch.Tensor):
@@ -256,7 +256,9 @@ class ResidualAttentionBlock_IVLP(nn.Module):
                 x = torch.cat([prefix, textual_context, suffix], dim=0)
 
         # PromptAlign
-        if not self.text_layer:
+        if self.text_layer:
+            self.text_feat = x
+        else:
             self.visual_feat = x
             
         x = x + self.attention(self.ln_1(x))
@@ -336,7 +338,9 @@ class ResidualAttentionBlock_MaPLe(nn.Module):
                         counter += 1
 
         # PromptAlign
-        if not self.text_layer:
+        if self.text_layer:
+            self.text_feat = x
+        else:
             self.visual_feat = x
                         
         x = x + self.attention(self.ln_1(x))
