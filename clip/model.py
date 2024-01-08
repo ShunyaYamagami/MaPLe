@@ -294,7 +294,13 @@ class ResidualAttentionBlock_MaPLe(nn.Module):
         self.attn_mask = self.attn_mask.to(dtype=x.dtype, device=x.device) if self.attn_mask is not None else None
         return self.attn(x, x, x, need_weights=False, attn_mask=self.attn_mask)[0]
 
-    def forward(self, inputs):
+    def forward(self, inputs, raw=False):
+        if raw:
+            x = inputs
+            x = x + self.attention(self.ln_1(x))
+            x = x + self.mlp(self.ln_2(x))
+            return x
+        
         # For the first layer, we do not need to add any duplicate, as it is already added
         # as the shallow version
         x = inputs[0]
@@ -372,8 +378,13 @@ class Transformer(nn.Module):
             assert current_trainer == 'CoOp' or current_trainer == 'CoCoOp'
             self.resblocks = nn.Sequential(*[ResidualAttentionBlock(width, heads, attn_mask) for _ in range(layers)])
 
-    def forward(self, x: torch.Tensor):
-        return self.resblocks(x)
+    def forward(self, x: torch.Tensor, raw=False):
+        if raw:
+            for block in self.resblocks:
+                x = block(x, raw=True)
+            return x
+        else:
+            return self.resblocks(x)
 
 
 class VisionTransformer(nn.Module):
