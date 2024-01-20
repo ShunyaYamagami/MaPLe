@@ -339,6 +339,8 @@ class ResidualAttentionBlock_MaPLe(nn.Module):
                         textual_context = textual_context.expand(x.shape[1], -1, -1).permute(1, 0, 2).half()
                         # Add the learnable tokens of this layer with the input, replaced by previous
                         # layer learnable tokens
+                        if x.device.index != textual_context.device.index:
+                            textual_context = textual_context.to(device=x.device)
                         x = torch.cat([prefix, textual_context, suffix], dim=0)
                         # Once done, update the counter, so that the next time, it does not use same learnable tokens
                         counter += 1
@@ -503,6 +505,58 @@ class VisionTransformer_MaPLe(nn.Module):
 
         return x
 
+    def encode_raw(self, x: torch.Tensor):
+        x = self.conv1(x)  # shape = [*, width, grid, grid]
+        x = x.reshape(x.shape[0], x.shape[1], -1)  # shape = [*, width, grid ** 2]
+        x = x.permute(0, 2, 1)  # shape = [*, grid ** 2, width]
+        x = torch.cat([self.class_embedding.to(x.dtype) + torch.zeros(x.shape[0], 1, x.shape[-1], dtype=x.dtype, device=x.device), x], dim=1)  # shape = [*, grid ** 2 + 1, width]
+        x = x + self.positional_embedding.to(x.dtype)
+        x = self.ln_pre(x)
+        x = x.permute(1, 0, 2)  # NLD -> LND
+        x = self.transformer(x, raw=True)
+        x = x.permute(1, 0, 2)  # LND -> NLD
+        x = self.ln_post(x[:, 0, :])
+        if self.proj is not None:
+            x = x @ self.proj
+        return x
+
+    def forward_vision_prefix(self, x: torch.Tensor, shared_ctx):
+        x = self.conv1(x)  # shape = [*, width, grid, grid]
+        x = x.reshape(x.shape[0], x.shape[1], -1)  # shape = [*, width, grid ** 2]
+        x = x.permute(0, 2, 1)  # shape = [*, grid ** 2, width]
+        x = torch.cat(
+            [self.class_embedding.to(x.dtype) + torch.zeros(x.shape[0], 1, x.shape[-1], dtype=x.dtype, device=x.device),
+             x], dim=1)  # shape = [*, grid ** 2 + 1, width]
+        x = x + self.positional_embedding.to(x.dtype)
+
+        # masking: length -> length * mask_ratio
+        # if self.args.mask and x.shape[0] > 1:
+        #     x = torch.cat([self.random_masking(_x, self.args.mask_ratio) for _x in x[1:]]).to(x.dtype)
+
+        # After positional embeddings, we will attach prompts with the model, remember only those
+        # are trainable parameters here in whole image encoder.
+        if self.VPT_shallow:
+            visual_ctx = shared_ctx.expand(x.shape[0], -1, -1).half()
+            x = torch.cat([x, visual_ctx], dim=1)
+        else:
+            assert self.prompt_till_layer_visual == 0
+
+        # Normal code as before
+        x = self.ln_pre(x)
+
+        x = x.permute(1, 0, 2)  # NLD -> LND
+        # Again combine the inputs, so nn.sequential can work
+        # outputs = self.transformer([x, compound_deeper_prompts, 0])  # third argument is counter
+        return x
+
+    def forward_vision_suffix(self, x: torch.Tensor):
+        x = x.permute(1, 0, 2)  # LND -> NLD
+
+        x = self.ln_post(x[:, 0, :])
+
+        if self.proj is not None:
+            x = x @ self.proj
+        return x
 
 class CLIP(nn.Module):
     def __init__(self,
